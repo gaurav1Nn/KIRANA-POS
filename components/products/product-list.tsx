@@ -8,7 +8,7 @@ import { Badge } from "@/components/ui/badge"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
-import { Search, Plus, MoreHorizontal, Pencil, Trash2, AlertTriangle } from "lucide-react"
+import { Search, Plus, MoreHorizontal, Pencil, Trash2, AlertTriangle, Loader2 } from "lucide-react"
 import { CATEGORIES } from "@/lib/types"
 import type { Product } from "@/lib/types"
 
@@ -18,27 +18,24 @@ interface ProductListProps {
 }
 
 export function ProductList({ onAdd, onEdit }: ProductListProps) {
-  const { products, deleteProduct } = useProductStore()
+  const { products, deleteProduct, isLoading } = useProductStore()
   const { isOwner } = useAuthStore()
   const [search, setSearch] = useState("")
   const [categoryFilter, setCategoryFilter] = useState<string>("all")
   const [stockFilter, setStockFilter] = useState<string>("all")
+  const [deleting, setDeleting] = useState<string | null>(null)
 
   const filteredProducts = products.filter((product) => {
-    // Status filter
     if (product.status === "inactive") return false
 
-    // Search filter
     const matchesSearch =
       search === "" ||
       product.name.toLowerCase().includes(search.toLowerCase()) ||
       product.barcode?.includes(search) ||
       product.brand?.toLowerCase().includes(search.toLowerCase())
 
-    // Category filter
     const matchesCategory = categoryFilter === "all" || product.category === categoryFilter
 
-    // Stock filter
     let matchesStock = true
     if (stockFilter === "low") {
       matchesStock = product.currentStock <= product.minStockLevel && product.currentStock > 0
@@ -48,6 +45,17 @@ export function ProductList({ onAdd, onEdit }: ProductListProps) {
 
     return matchesSearch && matchesCategory && matchesStock
   })
+
+  const handleDelete = async (productId: string) => {
+    setDeleting(productId)
+    try {
+      await deleteProduct(productId)
+    } catch (error) {
+      console.error("Failed to delete product:", error)
+    } finally {
+      setDeleting(null)
+    }
+  }
 
   return (
     <div className="space-y-4">
@@ -109,7 +117,14 @@ export function ProductList({ onAdd, onEdit }: ProductListProps) {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {filteredProducts.length === 0 ? (
+            {isLoading ? (
+              <TableRow>
+                <TableCell colSpan={7} className="text-center py-8">
+                  <Loader2 className="h-6 w-6 animate-spin mx-auto text-muted-foreground" />
+                  <p className="text-muted-foreground mt-2">Loading products...</p>
+                </TableCell>
+              </TableRow>
+            ) : filteredProducts.length === 0 ? (
               <TableRow>
                 <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
                   No products found
@@ -158,8 +173,16 @@ export function ProductList({ onAdd, onEdit }: ProductListProps) {
                           Edit
                         </DropdownMenuItem>
                         {isOwner() && (
-                          <DropdownMenuItem className="text-destructive" onClick={() => deleteProduct(product.id)}>
-                            <Trash2 className="h-4 w-4 mr-2" />
+                          <DropdownMenuItem
+                            className="text-destructive"
+                            onClick={() => handleDelete(product.id)}
+                            disabled={deleting === product.id}
+                          >
+                            {deleting === product.id ? (
+                              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                            ) : (
+                              <Trash2 className="h-4 w-4 mr-2" />
+                            )}
                             Delete
                           </DropdownMenuItem>
                         )}

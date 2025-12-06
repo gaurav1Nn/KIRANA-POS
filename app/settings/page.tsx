@@ -16,8 +16,9 @@ import { useState } from "react"
 export default function SettingsPage() {
   const router = useRouter()
   const { user } = useAuthStore()
-  const { settings, updateSettings } = useSettingsStore()
+  const { settings, fetchSettings, updateSettings } = useSettingsStore()
   const [saved, setSaved] = useState(false)
+  const [saving, setSaving] = useState(false)
 
   const [formData, setFormData] = useState(settings)
 
@@ -28,6 +29,10 @@ export default function SettingsPage() {
   }, [user, router])
 
   useEffect(() => {
+    fetchSettings()
+  }, [fetchSettings])
+
+  useEffect(() => {
     setFormData(settings)
   }, [settings])
 
@@ -35,10 +40,17 @@ export default function SettingsPage() {
     return null
   }
 
-  const handleSave = () => {
-    updateSettings(formData)
-    setSaved(true)
-    setTimeout(() => setSaved(false), 2000)
+  const handleSave = async () => {
+    setSaving(true)
+    try {
+      await updateSettings(formData)
+      setSaved(true)
+      setTimeout(() => setSaved(false), 2000)
+    } catch (error) {
+      console.error("Failed to save settings:", error)
+    } finally {
+      setSaving(false)
+    }
   }
 
   return (
@@ -52,9 +64,9 @@ export default function SettingsPage() {
               <h1 className="text-3xl font-bold text-foreground">Settings</h1>
               <p className="text-muted-foreground">Configure your shop and billing preferences</p>
             </div>
-            <Button onClick={handleSave} className="gap-2">
+            <Button onClick={handleSave} className="gap-2" disabled={saving}>
               <Save className="h-4 w-4" />
-              {saved ? "Saved!" : "Save Changes"}
+              {saving ? "Saving..." : saved ? "Saved!" : "Save Changes"}
             </Button>
           </div>
 

@@ -14,16 +14,22 @@ import { Badge } from "@/components/ui/badge"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { UserPlus, Users, Shield, User } from "lucide-react"
+import { UserPlus, Users, Shield, User, Loader2 } from "lucide-react"
 import { format } from "date-fns"
+import * as db from "@/lib/db"
+import type { User as UserType } from "@/lib/types"
 
 export default function UsersPage() {
   const router = useRouter()
-  const { user, users, isOwner, addUser } = useAuthStore()
+  const { user, isOwner } = useAuthStore()
   const [showForm, setShowForm] = useState(false)
+  const [users, setUsers] = useState<UserType[]>([])
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
   const [formData, setFormData] = useState({
     username: "",
     fullName: "",
+    password: "staff123",
     role: "staff" as "owner" | "staff",
   })
 
@@ -35,25 +41,70 @@ export default function UsersPage() {
     }
   }, [user, isOwner, router])
 
+  useEffect(() => {
+    const loadUsers = async () => {
+      setLoading(true)
+      try {
+        const data = await db.getUsers()
+        // Map DB format to our type format
+        setUsers(
+          data.map((u: Record<string, unknown>) => ({
+            id: u.id as string,
+            username: u.username as string,
+            fullName: (u.full_name || u.fullName) as string,
+            role: u.role as "owner" | "staff",
+            status: u.status as "active" | "inactive",
+            createdAt: (u.created_at || u.createdAt) as string,
+            lastLogin: (u.last_login || u.lastLogin) as string | undefined,
+          })),
+        )
+      } catch (error) {
+        console.error("Failed to load users:", error)
+      } finally {
+        setLoading(false)
+      }
+    }
+    loadUsers()
+  }, [])
+
   if (!user || !isOwner()) {
     return null
   }
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    addUser({
-      username: formData.username,
-      fullName: formData.fullName,
-      role: formData.role,
-      status: "active",
-    })
-    setShowForm(false)
-    setFormData({ username: "", fullName: "", role: "staff" })
+    setSaving(true)
+    try {
+      await db.addUser({
+        username: formData.username,
+        fullName: formData.fullName,
+        role: formData.role,
+        password: formData.password,
+      })
+      // Reload users
+      const data = await db.getUsers()
+      setUsers(
+        data.map((u: Record<string, unknown>) => ({
+          id: u.id as string,
+          username: u.username as string,
+          fullName: (u.full_name || u.fullName) as string,
+          role: u.role as "owner" | "staff",
+          status: u.status as "active" | "inactive",
+          createdAt: (u.created_at || u.createdAt) as string,
+          lastLogin: (u.last_login || u.lastLogin) as string | undefined,
+        })),
+      )
+      setShowForm(false)
+      setFormData({ username: "", fullName: "", password: "staff123", role: "staff" })
+    } catch (error) {
+      console.error("Failed to add user:", error)
+    } finally {
+      setSaving(false)
+    }
   }
 
   const ownerCount = users.filter((u) => u.role === "owner").length
   const staffCount = users.filter((u) => u.role === "staff").length
-  const activeCount = users.filter((u) => u.status === "active").length
 
   return (
     <div className="flex min-h-screen bg-background">
@@ -136,46 +187,54 @@ export default function UsersPage() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {users.map((u) => (
-                      <TableRow key={u.id}>
-                        <TableCell>
-                          <div className="flex items-center gap-3">
-                            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-accent text-accent-foreground font-semibold">
-                              {u.fullName.charAt(0)}
-                            </div>
-                            <span className="font-medium">{u.fullName}</span>
-                          </div>
-                        </TableCell>
-                        <TableCell className="text-muted-foreground">{u.username}</TableCell>
-                        <TableCell>
-                          <Badge variant={u.role === "owner" ? "default" : "secondary"}>
-                            {u.role === "owner" ? (
-                              <>
-                                <Shield className="h-3 w-3 mr-1" /> Owner
-                              </>
-                            ) : (
-                              <>
-                                <User className="h-3 w-3 mr-1" /> Staff
-                              </>
-                            )}
-                          </Badge>
-                        </TableCell>
-                        <TableCell>
-                          <Badge
-                            variant={u.status === "active" ? "outline" : "secondary"}
-                            className={u.status === "active" ? "bg-green-50 text-green-700 border-green-200" : ""}
-                          >
-                            {u.status}
-                          </Badge>
-                        </TableCell>
-                        <TableCell className="text-muted-foreground">
-                          {format(new Date(u.createdAt), "dd MMM yyyy")}
-                        </TableCell>
-                        <TableCell className="text-muted-foreground">
-                          {u.lastLogin ? format(new Date(u.lastLogin), "dd MMM yyyy hh:mm a") : "Never"}
+                    {loading ? (
+                      <TableRow>
+                        <TableCell colSpan={6} className="text-center py-8">
+                          <Loader2 className="h-6 w-6 animate-spin mx-auto text-muted-foreground" />
                         </TableCell>
                       </TableRow>
-                    ))}
+                    ) : (
+                      users.map((u) => (
+                        <TableRow key={u.id}>
+                          <TableCell>
+                            <div className="flex items-center gap-3">
+                              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-accent text-accent-foreground font-semibold">
+                                {u.fullName.charAt(0)}
+                              </div>
+                              <span className="font-medium">{u.fullName}</span>
+                            </div>
+                          </TableCell>
+                          <TableCell className="text-muted-foreground">{u.username}</TableCell>
+                          <TableCell>
+                            <Badge variant={u.role === "owner" ? "default" : "secondary"}>
+                              {u.role === "owner" ? (
+                                <>
+                                  <Shield className="h-3 w-3 mr-1" /> Owner
+                                </>
+                              ) : (
+                                <>
+                                  <User className="h-3 w-3 mr-1" /> Staff
+                                </>
+                              )}
+                            </Badge>
+                          </TableCell>
+                          <TableCell>
+                            <Badge
+                              variant={u.status === "active" ? "outline" : "secondary"}
+                              className={u.status === "active" ? "bg-green-50 text-green-700 border-green-200" : ""}
+                            >
+                              {u.status}
+                            </Badge>
+                          </TableCell>
+                          <TableCell className="text-muted-foreground">
+                            {format(new Date(u.createdAt), "dd MMM yyyy")}
+                          </TableCell>
+                          <TableCell className="text-muted-foreground">
+                            {u.lastLogin ? format(new Date(u.lastLogin), "dd MMM yyyy hh:mm a") : "Never"}
+                          </TableCell>
+                        </TableRow>
+                      ))
+                    )}
                   </TableBody>
                 </Table>
               </div>
@@ -247,6 +306,17 @@ export default function UsersPage() {
                   />
                 </div>
                 <div className="space-y-2">
+                  <Label htmlFor="password">Password</Label>
+                  <Input
+                    id="password"
+                    type="password"
+                    value={formData.password}
+                    onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+                    placeholder="Enter password"
+                    required
+                  />
+                </div>
+                <div className="space-y-2">
                   <Label>Role</Label>
                   <Select
                     value={formData.role}
@@ -261,14 +331,14 @@ export default function UsersPage() {
                     </SelectContent>
                   </Select>
                 </div>
-                <div className="p-3 bg-muted rounded-lg text-sm text-muted-foreground">
-                  Default password will be: <code className="bg-background px-1 rounded">staff123</code>
-                </div>
                 <div className="flex justify-end gap-2 pt-2">
                   <Button type="button" variant="outline" onClick={() => setShowForm(false)}>
                     Cancel
                   </Button>
-                  <Button type="submit">Add User</Button>
+                  <Button type="submit" disabled={saving}>
+                    {saving && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+                    Add User
+                  </Button>
                 </div>
               </form>
             </DialogContent>

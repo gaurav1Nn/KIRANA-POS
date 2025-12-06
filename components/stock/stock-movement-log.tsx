@@ -1,21 +1,23 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { useSalesStore } from "@/lib/store"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { Search, ArrowUpCircle, ArrowDownCircle, Settings2 } from "lucide-react"
+import { Search, ArrowUpCircle, ArrowDownCircle, Settings2, Loader2 } from "lucide-react"
 import { format } from "date-fns"
 
 export function StockMovementLog() {
-  const { stockMovements } = useSalesStore()
+  const { stockMovements, fetchStockMovements, isLoading } = useSalesStore()
   const [search, setSearch] = useState("")
+
+  useEffect(() => {
+    fetchStockMovements()
+  }, [fetchStockMovements])
 
   const filteredMovements = stockMovements
     .filter((m) => search === "" || m.productName.toLowerCase().includes(search.toLowerCase()))
-    .slice()
-    .reverse()
     .slice(0, 50)
 
   const getMovementIcon = (type: string) => {
@@ -66,13 +68,19 @@ export function StockMovementLog() {
               <TableHead className="text-right">Before</TableHead>
               <TableHead className="text-right">After</TableHead>
               <TableHead>Reason</TableHead>
-              <TableHead>By</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
-            {filteredMovements.length === 0 ? (
+            {isLoading ? (
               <TableRow>
-                <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
+                <TableCell colSpan={7} className="text-center py-8">
+                  <Loader2 className="h-6 w-6 animate-spin mx-auto text-muted-foreground" />
+                  <p className="text-muted-foreground mt-2">Loading movements...</p>
+                </TableCell>
+              </TableRow>
+            ) : filteredMovements.length === 0 ? (
+              <TableRow>
+                <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
                   No stock movements recorded
                 </TableCell>
               </TableRow>
@@ -101,7 +109,6 @@ export function StockMovementLog() {
                     {movement.reason || "-"}
                     {movement.supplierName && <span className="block">Supplier: {movement.supplierName}</span>}
                   </TableCell>
-                  <TableCell className="text-sm">{movement.createdBy}</TableCell>
                 </TableRow>
               ))
             )}

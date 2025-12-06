@@ -1,13 +1,32 @@
 "use client"
 
+import { useEffect, useState } from "react"
 import { useSalesStore } from "@/lib/store"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
+import { Loader2 } from "lucide-react"
 import { format } from "date-fns"
+import type { Sale } from "@/lib/types"
 
 export function RecentSales() {
-  const { getTodaySales } = useSalesStore()
-  const recentSales = getTodaySales().slice(-10).reverse()
+  const { fetchTodaySales } = useSalesStore()
+  const [recentSales, setRecentSales] = useState<Sale[]>([])
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    const loadSales = async () => {
+      setLoading(true)
+      try {
+        const sales = await fetchTodaySales()
+        setRecentSales(sales.slice(0, 10))
+      } catch (error) {
+        console.error("Failed to load sales:", error)
+      } finally {
+        setLoading(false)
+      }
+    }
+    loadSales()
+  }, [fetchTodaySales])
 
   const paymentModeColors = {
     cash: "bg-green-100 text-green-800",
@@ -21,7 +40,11 @@ export function RecentSales() {
         <CardTitle>Recent Sales</CardTitle>
       </CardHeader>
       <CardContent>
-        {recentSales.length === 0 ? (
+        {loading ? (
+          <div className="flex items-center justify-center py-8">
+            <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+          </div>
+        ) : recentSales.length === 0 ? (
           <div className="text-center py-8 text-muted-foreground">No sales today yet. Start a new sale!</div>
         ) : (
           <div className="space-y-3">

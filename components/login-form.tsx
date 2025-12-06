@@ -14,27 +14,25 @@ import { Store, AlertCircle } from "lucide-react"
 
 export function LoginForm() {
   const router = useRouter()
-  const { login } = useAuthStore()
+  const { login, isLoading } = useAuthStore()
   const [username, setUsername] = useState("")
   const [password, setPassword] = useState("")
   const [error, setError] = useState("")
-  const [loading, setLoading] = useState(false)
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setError("")
-    setLoading(true)
 
-    // Simulate network delay
-    await new Promise((resolve) => setTimeout(resolve, 500))
-
-    const success = login(username, password)
-    if (success) {
-      router.push("/dashboard")
-    } else {
-      setError("Invalid username or password")
+    try {
+      const success = await login(username, password)
+      if (success) {
+        router.push("/dashboard")
+      } else {
+        setError("Invalid username or password")
+      }
+    } catch (err) {
+      setError("Login failed. Please try again.")
     }
-    setLoading(false)
   }
 
   return (
@@ -83,8 +81,8 @@ export function LoginForm() {
               />
             </div>
 
-            <Button type="submit" className="w-full" disabled={loading}>
-              {loading ? "Signing in..." : "Sign In"}
+            <Button type="submit" className="w-full" disabled={isLoading}>
+              {isLoading ? "Signing in..." : "Sign In"}
             </Button>
 
             <div className="mt-4 p-3 bg-muted rounded-lg text-sm text-muted-foreground">

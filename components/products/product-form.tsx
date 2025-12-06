@@ -10,8 +10,10 @@ import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { Alert, AlertDescription } from "@/components/ui/alert"
 import { CATEGORIES, UNITS, GST_RATES } from "@/lib/types"
 import type { Product } from "@/lib/types"
+import { AlertCircle, Loader2 } from "lucide-react"
 
 interface ProductFormProps {
   open: boolean
@@ -20,7 +22,7 @@ interface ProductFormProps {
 }
 
 export function ProductForm({ open, onOpenChange, product }: ProductFormProps) {
-  const { addProduct, updateProduct } = useProductStore()
+  const { addProduct, updateProduct, checkBarcodeExists } = useProductStore()
   const isEditing = !!product
 
   const [formData, setFormData] = useState({
@@ -37,6 +39,9 @@ export function ProductForm({ open, onOpenChange, product }: ProductFormProps) {
     brand: "",
     description: "",
   })
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState("")
+  const [barcodeWarning, setBarcodeWarning] = useState("")
 
   useEffect(() => {
     if (product) {
@@ -70,10 +75,30 @@ export function ProductForm({ open, onOpenChange, product }: ProductFormProps) {
         description: "",
       })
     }
+    setError("")
+    setBarcodeWarning("")
   }, [product, open])
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleBarcodeChange = async (barcode: string) => {
+    setFormData({ ...formData, barcode })
+    setBarcodeWarning("")
+
+    if (barcode && barcode.length >= 8) {
+      try {
+        const exists = await checkBarcodeExists(barcode, product?.id)
+        if (exists) {
+          setBarcodeWarning("This barcode is already assigned to another product")
+        }
+      } catch (err) {
+        console.error("Failed to check barcode:", err)
+      }
+    }
+  }
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+    setError("")
+    setSaving(true)
 
     const productData = {
       name: formData.name,
@@ -91,13 +116,18 @@ export function ProductForm({ open, onOpenChange, product }: ProductFormProps) {
       status: "active" as const,
     }
 
-    if (isEditing && product) {
-      updateProduct(product.id, productData)
-    } else {
-      addProduct(productData)
+    try {
+      if (isEditing && product) {
+        await updateProduct(product.id, productData)
+      } else {
+        await addProduct(productData)
+      }
+      onOpenChange(false)
+    } catch (err) {
+      setError("Failed to save product. Please try again.")
+    } finally {
+      setSaving(false)
     }
-
-    onOpenChange(false)
   }
 
   return (
@@ -107,6 +137,13 @@ export function ProductForm({ open, onOpenChange, product }: ProductFormProps) {
           <DialogTitle>{isEditing ? "Edit Product" : "Add New Product"}</DialogTitle>
         </DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-4">
+          {error && (
+            <Alert variant="destructive">
+              <AlertCircle className="h-4 w-4" />
+              <AlertDescription>{error}</AlertDescription>
+            </Alert>
+          )}
+
           <div className="grid grid-cols-2 gap-4">
             {/* Product Name */}
             <div className="col-span-2 space-y-2">
@@ -126,9 +163,10 @@ export function ProductForm({ open, onOpenChange, product }: ProductFormProps) {
               <Input
                 id="barcode"
                 value={formData.barcode}
-                onChange={(e) => setFormData({ ...formData, barcode: e.target.value })}
+                onChange={(e) => handleBarcodeChange(e.target.value)}
                 placeholder="Scan or enter barcode"
               />
+              {barcodeWarning && <p className="text-sm text-amber-600">{barcodeWarning}</p>}
             </div>
 
             {/* Brand */}
@@ -278,7 +316,10 @@ export function ProductForm({ open, onOpenChange, product }: ProductFormProps) {
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
               Cancel
             </Button>
-            <Button type="submit">{isEditing ? "Update Product" : "Add Product"}</Button>
+            <Button type="submit" disabled={saving}>
+              {saving && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+              {isEditing ? "Update Product" : "Add Product"}
+            </Button>
           </div>
         </form>
       </DialogContent>

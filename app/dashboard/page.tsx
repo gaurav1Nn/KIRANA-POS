@@ -2,7 +2,7 @@
 
 import { useEffect } from "react"
 import { useRouter } from "next/navigation"
-import { useAuthStore } from "@/lib/store"
+import { useAuthStore, useProductStore, useSalesStore, useSettingsStore } from "@/lib/store"
 import { Sidebar } from "@/components/sidebar"
 import { StatsCards } from "@/components/dashboard/stats-cards"
 import { QuickActions } from "@/components/dashboard/quick-actions"
@@ -12,12 +12,21 @@ import { TopProducts } from "@/components/dashboard/top-products"
 export default function DashboardPage() {
   const router = useRouter()
   const { user } = useAuthStore()
+  const { fetchProducts } = useProductStore()
+  const { fetchSales } = useSalesStore()
+  const { fetchSettings } = useSettingsStore()
 
   useEffect(() => {
     if (!user) {
       router.push("/")
     }
   }, [user, router])
+
+  useEffect(() => {
+    fetchProducts()
+    fetchSales()
+    fetchSettings()
+  }, [fetchProducts, fetchSales, fetchSettings])
 
   if (!user) {
     return null

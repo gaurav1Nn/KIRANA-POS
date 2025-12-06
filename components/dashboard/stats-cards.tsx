@@ -1,14 +1,24 @@
 "use client"
 
+import { useEffect, useState } from "react"
 import { useSalesStore, useProductStore } from "@/lib/store"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { IndianRupee, Receipt, ShoppingBag, Wallet, CreditCard, TrendingUp, AlertTriangle, Clock } from "lucide-react"
+import type { Sale } from "@/lib/types"
 
 export function StatsCards() {
-  const { getTodaySales } = useSalesStore()
+  const { fetchTodaySales } = useSalesStore()
   const { getLowStockProducts, getExpiringProducts } = useProductStore()
+  const [todaySales, setTodaySales] = useState<Sale[]>([])
 
-  const todaySales = getTodaySales()
+  useEffect(() => {
+    const loadSales = async () => {
+      const sales = await fetchTodaySales()
+      setTodaySales(sales)
+    }
+    loadSales()
+  }, [fetchTodaySales])
+
   const lowStockCount = getLowStockProducts().length
   const expiringCount = getExpiringProducts(7).length
 

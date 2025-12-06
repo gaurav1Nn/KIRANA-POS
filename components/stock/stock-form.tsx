@@ -11,7 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { PackagePlus, PackageMinus, Settings2 } from "lucide-react"
+import { PackagePlus, PackageMinus, Settings2, Loader2 } from "lucide-react"
 
 interface StockFormProps {
   open: boolean
@@ -31,6 +31,7 @@ export function StockForm({ open, onOpenChange, defaultType = "stock_in" }: Stoc
   const [supplierName, setSupplierName] = useState("")
   const [reason, setReason] = useState("")
   const [newStockLevel, setNewStockLevel] = useState("")
+  const [saving, setSaving] = useState(false)
 
   const activeProducts = products.filter((p) => p.status === "active")
   const selectedProduct = products.find((p) => p.id === productId)
@@ -47,47 +48,51 @@ export function StockForm({ open, onOpenChange, defaultType = "stock_in" }: Stoc
     }
   }, [selectedProduct, type])
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!selectedProduct) return
 
-    const qty = Number.parseFloat(quantity) || 0
-    const previousStock = selectedProduct.currentStock
-    let newStock = previousStock
+    setSaving(true)
+    try {
+      const qty = Number.parseFloat(quantity) || 0
+      const previousStock = selectedProduct.currentStock
+      let newStock = previousStock
 
-    if (type === "stock_in") {
-      newStock = previousStock + qty
-    } else if (type === "stock_out") {
-      newStock = Math.max(0, previousStock - qty)
-    } else if (type === "adjustment") {
-      newStock = Number.parseFloat(newStockLevel) || 0
+      if (type === "stock_in") {
+        newStock = previousStock + qty
+      } else if (type === "stock_out") {
+        newStock = Math.max(0, previousStock - qty)
+      } else if (type === "adjustment") {
+        newStock = Number.parseFloat(newStockLevel) || 0
+      }
+
+      // Log stock movement (this will also update product stock in db.ts)
+      await addStockMovement({
+        productId,
+        productName: selectedProduct.name,
+        movementType: type,
+        quantity: type === "adjustment" ? Math.abs(newStock - previousStock) : qty,
+        reason: reason || undefined,
+        purchasePrice: type === "stock_in" ? Number.parseFloat(purchasePrice) || undefined : undefined,
+        supplierName: type === "stock_in" ? supplierName || undefined : undefined,
+        previousStock,
+        newStock,
+        createdBy: user?.id || "unknown",
+      })
+
+      // Reset form
+      setProductId("")
+      setQuantity("")
+      setPurchasePrice("")
+      setSupplierName("")
+      setReason("")
+      setNewStockLevel("")
+      onOpenChange(false)
+    } catch (error) {
+      console.error("Failed to update stock:", error)
+    } finally {
+      setSaving(false)
     }
-
-    // Update product stock
-    updateProduct(productId, { currentStock: newStock })
-
-    // Log stock movement
-    addStockMovement({
-      productId,
-      productName: selectedProduct.name,
-      movementType: type,
-      quantity: type === "adjustment" ? Math.abs(newStock - previousStock) : qty,
-      reason: reason || undefined,
-      purchasePrice: type === "stock_in" ? Number.parseFloat(purchasePrice) || undefined : undefined,
-      supplierName: type === "stock_in" ? supplierName || undefined : undefined,
-      previousStock,
-      newStock,
-      createdBy: user?.fullName || "Unknown",
-    })
-
-    // Reset form
-    setProductId("")
-    setQuantity("")
-    setPurchasePrice("")
-    setSupplierName("")
-    setReason("")
-    setNewStockLevel("")
-    onOpenChange(false)
   }
 
   return (
@@ -231,7 +236,8 @@ export function StockForm({ open, onOpenChange, defaultType = "stock_in" }: Stoc
               <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
                 Cancel
               </Button>
-              <Button type="submit" disabled={!productId}>
+              <Button type="submit" disabled={!productId || saving}>
+                {saving && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
                 {type === "stock_in" ? "Add Stock" : type === "stock_out" ? "Remove Stock" : "Adjust Stock"}
               </Button>
             </div>

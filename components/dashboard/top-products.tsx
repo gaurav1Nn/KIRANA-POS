@@ -1,32 +1,51 @@
 "use client"
 
+import { useEffect, useState } from "react"
 import { useSalesStore } from "@/lib/store"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Loader2 } from "lucide-react"
 
 export function TopProducts() {
-  const { getTodaySales } = useSalesStore()
-  const todaySales = getTodaySales()
+  const { fetchTodaySales } = useSalesStore()
+  const [topProducts, setTopProducts] = useState<{ name: string; quantity: number; revenue: number }[]>([])
+  const [loading, setLoading] = useState(true)
 
-  // Aggregate products sold today
-  const productSales: Record<string, { name: string; quantity: number; revenue: number }> = {}
+  useEffect(() => {
+    const loadProducts = async () => {
+      setLoading(true)
+      try {
+        const todaySales = await fetchTodaySales()
 
-  todaySales.forEach((sale) => {
-    sale.items.forEach((item) => {
-      if (!productSales[item.productId]) {
-        productSales[item.productId] = {
-          name: item.productName,
-          quantity: 0,
-          revenue: 0,
-        }
+        // Aggregate products sold today
+        const productSales: Record<string, { name: string; quantity: number; revenue: number }> = {}
+
+        todaySales.forEach((sale) => {
+          sale.items.forEach((item) => {
+            if (!productSales[item.productId]) {
+              productSales[item.productId] = {
+                name: item.productName,
+                quantity: 0,
+                revenue: 0,
+              }
+            }
+            productSales[item.productId].quantity += item.quantity
+            productSales[item.productId].revenue += item.subtotal
+          })
+        })
+
+        const sorted = Object.values(productSales)
+          .sort((a, b) => b.quantity - a.quantity)
+          .slice(0, 5)
+
+        setTopProducts(sorted)
+      } catch (error) {
+        console.error("Failed to load products:", error)
+      } finally {
+        setLoading(false)
       }
-      productSales[item.productId].quantity += item.quantity
-      productSales[item.productId].revenue += item.subtotal
-    })
-  })
-
-  const topProducts = Object.values(productSales)
-    .sort((a, b) => b.quantity - a.quantity)
-    .slice(0, 5)
+    }
+    loadProducts()
+  }, [fetchTodaySales])
 
   return (
     <Card>
@@ -34,7 +53,11 @@ export function TopProducts() {
         <CardTitle>Top Selling Today</CardTitle>
       </CardHeader>
       <CardContent>
-        {topProducts.length === 0 ? (
+        {loading ? (
+          <div className="flex items-center justify-center py-8">
+            <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+          </div>
+        ) : topProducts.length === 0 ? (
           <div className="text-center py-8 text-muted-foreground">No products sold today yet.</div>
         ) : (
           <div className="space-y-3">

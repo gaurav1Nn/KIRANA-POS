@@ -6,8 +6,19 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
-import { Percent, IndianRupee, Banknote, Smartphone, CreditCard, Pause, Trash2, Check, Printer } from "lucide-react"
-import type { SaleItem, Sale } from "@/lib/types"
+import {
+  Percent,
+  IndianRupee,
+  Banknote,
+  Smartphone,
+  CreditCard,
+  Pause,
+  Trash2,
+  Check,
+  Printer,
+  Loader2,
+} from "lucide-react"
+import type { Sale } from "@/lib/types"
 
 export function CartSummary() {
   const { user } = useAuthStore()
@@ -23,7 +34,7 @@ export function CartSummary() {
     getTaxBreakdown,
     getTotal,
   } = useCartStore()
-  const { updateProduct } = useProductStore()
+  const { fetchProducts } = useProductStore()
   const { addSale, holdBill } = useSalesStore()
 
   const [paymentMode, setPaymentMode] = useState<"cash" | "upi" | "card">("cash")
@@ -35,6 +46,8 @@ export function CartSummary() {
   const [saleComplete, setSaleComplete] = useState(false)
   const [lastInvoice, setLastInvoice] = useState("")
   const [lastSale, setLastSale] = useState<Sale | null>(null)
+  const [processing, setProcessing] = useState(false)
+  const [holdingBill, setHoldingBill] = useState(false)
 
   const subtotal = getSubtotal()
   const discountAmount = getDiscountAmount()
@@ -204,66 +217,61 @@ export function CartSummary() {
     setDiscountInput("")
   }
 
-  const handleHoldBill = () => {
+  const handleHoldBill = async () => {
     if (items.length === 0) return
-    holdBill({
-      billName: `Bill ${new Date().toLocaleTimeString()}`,
-      items: items,
-      subtotal: subtotal,
-      discount: discountAmount,
-      heldBy: user?.id || "",
-    })
-    clearCart()
+    setHoldingBill(true)
+    try {
+      await holdBill({
+        billName: `Bill ${new Date().toLocaleTimeString()}`,
+        items: items,
+        subtotal: subtotal,
+        discount: discountAmount,
+        heldBy: user?.id || "",
+      })
+      clearCart()
+    } catch (error) {
+      console.error("Failed to hold bill:", error)
+    } finally {
+      setHoldingBill(false)
+    }
   }
 
-  const handleCompleteSale = () => {
+  const handleCompleteSale = async () => {
     if (items.length === 0) return
 
-    // Create sale items
-    const saleItems: SaleItem[] = items.map((item) => ({
-      id: Math.random().toString(36).substr(2, 9),
-      productId: item.id,
-      productName: item.name,
-      barcode: item.barcode,
-      quantity: item.quantity,
-      unit: item.unit,
-      unitPrice: item.sellingPrice,
-      discount: item.discount,
-      gstRate: item.gstRate,
-      gstAmount: (item.sellingPrice * item.quantity * item.gstRate) / 100,
-      subtotal: item.sellingPrice * item.quantity,
-    }))
-
-    // Create sale
-    const sale = addSale({
-      items: saleItems,
-      subtotal: subtotal,
-      discountAmount: discountAmount,
-      discountPercent: discountType === "percent" ? discount : 0,
-      cgstAmount: tax.cgst,
-      sgstAmount: tax.sgst,
-      totalTax: tax.total,
-      totalAmount: total,
-      paymentMode: paymentMode,
-      amountReceived: paymentMode === "cash" ? Number.parseFloat(amountReceived) : total,
-      changeReturned: paymentMode === "cash" ? Math.max(0, change) : 0,
-      status: "completed",
-      createdBy: user?.id || "",
-    })
-
-    // Update stock for each item
-    items.forEach((item) => {
-      updateProduct(item.id, {
-        currentStock: item.currentStock - item.quantity,
+    setProcessing(true)
+    try {
+      // Create sale (stock update happens in the addSale function in db.ts)
+      const sale = await addSale({
+        items: [],
+        subtotal: subtotal,
+        discountAmount: discountAmount,
+        discountPercent: discountType === "percent" ? discount : 0,
+        cgstAmount: tax.cgst,
+        sgstAmount: tax.sgst,
+        totalTax: tax.total,
+        totalAmount: total,
+        paymentMode: paymentMode,
+        amountReceived: paymentMode === "cash" ? Number.parseFloat(amountReceived) : total,
+        changeReturned: paymentMode === "cash" ? Math.max(0, change) : 0,
+        status: "completed",
+        createdBy: user?.id || "",
       })
-    })
 
-    setLastInvoice(sale.invoiceNumber)
-    setLastSale(sale)
-    setSaleComplete(true)
-    setShowPayment(false)
-    clearCart()
-    setAmountReceived("")
+      setLastInvoice(sale.invoiceNumber)
+      setLastSale(sale)
+      setSaleComplete(true)
+      setShowPayment(false)
+      clearCart()
+      setAmountReceived("")
+
+      // Refresh products to get updated stock
+      await fetchProducts()
+    } catch (error) {
+      console.error("Failed to complete sale:", error)
+    } finally {
+      setProcessing(false)
+    }
   }
 
   const handleNewSale = () => {
@@ -323,9 +331,9 @@ export function CartSummary() {
             variant="outline"
             className="gap-2 bg-transparent"
             onClick={handleHoldBill}
-            disabled={items.length === 0}
+            disabled={items.length === 0 || holdingBill}
           >
-            <Pause className="h-4 w-4" />
+            {holdingBill ? <Loader2 className="h-4 w-4 animate-spin" /> : <Pause className="h-4 w-4" />}
             Hold
           </Button>
           <Button
@@ -372,10 +380,19 @@ export function CartSummary() {
           size="lg"
           className="w-full h-14 text-lg font-bold gap-2"
           onClick={() => (paymentMode === "cash" ? setShowPayment(true) : handleCompleteSale())}
-          disabled={items.length === 0}
+          disabled={items.length === 0 || processing}
         >
-          <Check className="h-5 w-5" />
-          Complete Sale (F12)
+          {processing ? (
+            <>
+              <Loader2 className="h-5 w-5 animate-spin" />
+              Processing...
+            </>
+          ) : (
+            <>
+              <Check className="h-5 w-5" />
+              Complete Sale (F12)
+            </>
+          )}
         </Button>
       </div>
 
@@ -429,9 +446,16 @@ export function CartSummary() {
               size="lg"
               className="w-full"
               onClick={handleCompleteSale}
-              disabled={Number.parseFloat(amountReceived) < total}
+              disabled={Number.parseFloat(amountReceived) < total || processing}
             >
-              Complete Payment
+              {processing ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Processing...
+                </>
+              ) : (
+                "Complete Payment"
+              )}
             </Button>
           </div>
         </DialogContent>

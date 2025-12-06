@@ -2,7 +2,7 @@
 
 import { useEffect } from "react"
 import { useRouter } from "next/navigation"
-import { useAuthStore } from "@/lib/store"
+import { useAuthStore, useProductStore, useSalesStore } from "@/lib/store"
 import { Sidebar } from "@/components/sidebar"
 import { ProductSearch } from "@/components/billing/product-search"
 import { CartList } from "@/components/billing/cart-list"
@@ -13,12 +13,19 @@ import { HeldBills } from "@/components/billing/held-bills"
 export default function BillingPage() {
   const router = useRouter()
   const { user } = useAuthStore()
+  const { fetchProducts } = useProductStore()
+  const { fetchHeldBills } = useSalesStore()
 
   useEffect(() => {
     if (!user) {
       router.push("/")
     }
   }, [user, router])
+
+  useEffect(() => {
+    fetchProducts()
+    fetchHeldBills()
+  }, [fetchProducts, fetchHeldBills])
 
   // Keyboard shortcuts
   useEffect(() => {

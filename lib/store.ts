@@ -1,296 +1,147 @@
 import { create } from "zustand"
 import { persist } from "zustand/middleware"
 import type { User, Product, CartItem, Sale, HeldBill, StockMovement, ShopSettings } from "./types"
+import * as db from "./db"
 
 // Generate unique IDs
 const generateId = () => Math.random().toString(36).substr(2, 9)
 
-// Auth Store
+// Auth Store - keeps user session in localStorage for persistence across page refreshes
 interface AuthState {
   user: User | null
-  users: User[]
-  login: (username: string, password: string) => boolean
+  isLoading: boolean
+  login: (username: string, password: string) => Promise<boolean>
   logout: () => void
   isOwner: () => boolean
-  addUser: (user: Omit<User, "id" | "createdAt">) => void
 }
 
 export const useAuthStore = create<AuthState>()(
   persist(
     (set, get) => ({
       user: null,
-      users: [
-        {
-          id: "1",
-          username: "owner",
-          fullName: "Shop Owner",
-          role: "owner",
-          status: "active",
-          createdAt: new Date().toISOString(),
-        },
-        {
-          id: "2",
-          username: "staff",
-          fullName: "Staff Member",
-          role: "staff",
-          status: "active",
-          createdAt: new Date().toISOString(),
-        },
-      ],
-      login: (username, password) => {
-        // Simple auth - in production use proper hashing
-        const users = get().users
-        const user = users.find((u) => u.username === username && u.status === "active")
-        if (user && (password === "admin123" || password === "staff123")) {
-          set({ user: { ...user, lastLogin: new Date().toISOString() } })
-          return true
+      isLoading: false,
+      login: async (username, password) => {
+        set({ isLoading: true })
+        try {
+          const user = await db.loginUser(username, password)
+          if (user) {
+            set({ user, isLoading: false })
+            return true
+          }
+          set({ isLoading: false })
+          return false
+        } catch (error) {
+          console.error("Login error:", error)
+          set({ isLoading: false })
+          return false
         }
-        return false
       },
       logout: () => set({ user: null }),
       isOwner: () => get().user?.role === "owner",
-      addUser: (userData) => {
-        const newUser: User = {
-          ...userData,
-          id: generateId(),
-          createdAt: new Date().toISOString(),
-        }
-        set((state) => ({ users: [...state.users, newUser] }))
-      },
     }),
     { name: "kirana-auth" },
   ),
 )
 
-// Product Store
+// Product Store - now uses Supabase
 interface ProductState {
   products: Product[]
-  addProduct: (product: Omit<Product, "id" | "createdAt" | "updatedAt">) => void
-  updateProduct: (id: string, updates: Partial<Product>) => void
-  deleteProduct: (id: string) => void
+  isLoading: boolean
+  error: string | null
+  fetchProducts: () => Promise<void>
+  addProduct: (product: Omit<Product, "id" | "createdAt" | "updatedAt">) => Promise<void>
+  updateProduct: (id: string, updates: Partial<Product>) => Promise<void>
+  deleteProduct: (id: string) => Promise<void>
   getProduct: (id: string) => Product | undefined
-  searchProducts: (query: string) => Product[]
+  searchProducts: (query: string) => Promise<Product[]>
+  getProductByBarcode: (barcode: string) => Promise<{ product: Product | null; duplicates: Product[] }>
+  checkBarcodeExists: (barcode: string, excludeProductId?: string) => Promise<boolean>
   getLowStockProducts: () => Product[]
   getExpiringProducts: (days: number) => Product[]
 }
 
-// Sample products
-const sampleProducts: Product[] = [
-  {
-    id: "1",
-    barcode: "8901234567890",
-    name: "Tata Salt 1kg",
-    category: "Groceries",
-    unit: "Packet",
-    purchasePrice: 18,
-    sellingPrice: 22,
-    currentStock: 50,
-    minStockLevel: 10,
-    gstRate: 5,
-    brand: "Tata",
-    status: "active",
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
+export const useProductStore = create<ProductState>((set, get) => ({
+  products: [],
+  isLoading: false,
+  error: null,
+  fetchProducts: async () => {
+    set({ isLoading: true, error: null })
+    try {
+      const products = await db.getActiveProducts()
+      set({ products, isLoading: false })
+    } catch (error) {
+      console.error("Fetch products error:", error)
+      set({ error: "Failed to fetch products", isLoading: false })
+    }
   },
-  {
-    id: "2",
-    barcode: "8901234567891",
-    name: "Parle-G Biscuit",
-    category: "Snacks",
-    unit: "Packet",
-    purchasePrice: 8,
-    sellingPrice: 10,
-    currentStock: 100,
-    minStockLevel: 20,
-    gstRate: 18,
-    brand: "Parle",
-    status: "active",
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
+  addProduct: async (product) => {
+    try {
+      const newProduct = await db.addProduct(product)
+      set((state) => ({ products: [...state.products, newProduct] }))
+    } catch (error) {
+      console.error("Add product error:", error)
+      throw error
+    }
   },
-  {
-    id: "3",
-    barcode: "8901234567892",
-    name: "Amul Butter 100g",
-    category: "Dairy",
-    unit: "Piece",
-    purchasePrice: 48,
-    sellingPrice: 56,
-    currentStock: 25,
-    minStockLevel: 10,
-    gstRate: 12,
-    brand: "Amul",
-    status: "active",
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
+  updateProduct: async (id, updates) => {
+    try {
+      await db.updateProduct(id, updates)
+      set((state) => ({
+        products: state.products.map((p) =>
+          p.id === id ? { ...p, ...updates, updatedAt: new Date().toISOString() } : p,
+        ),
+      }))
+    } catch (error) {
+      console.error("Update product error:", error)
+      throw error
+    }
   },
-  {
-    id: "4",
-    barcode: "8901234567893",
-    name: "Maggi Noodles",
-    category: "Snacks",
-    unit: "Packet",
-    purchasePrice: 11,
-    sellingPrice: 14,
-    currentStock: 80,
-    minStockLevel: 15,
-    gstRate: 18,
-    brand: "Nestle",
-    status: "active",
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
+  deleteProduct: async (id) => {
+    try {
+      await db.deleteProduct(id)
+      set((state) => ({
+        products: state.products.filter((p) => p.id !== id),
+      }))
+    } catch (error) {
+      console.error("Delete product error:", error)
+      throw error
+    }
   },
-  {
-    id: "5",
-    barcode: "8901234567894",
-    name: "Coca Cola 750ml",
-    category: "Beverages",
-    unit: "Piece",
-    purchasePrice: 35,
-    sellingPrice: 40,
-    currentStock: 40,
-    minStockLevel: 10,
-    gstRate: 28,
-    brand: "Coca Cola",
-    status: "active",
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
+  getProduct: (id) => get().products.find((p) => p.id === id),
+  searchProducts: async (query) => {
+    try {
+      return await db.searchProducts(query)
+    } catch (error) {
+      console.error("Search products error:", error)
+      return []
+    }
   },
-  {
-    id: "6",
-    barcode: "8901234567895",
-    name: "Surf Excel 1kg",
-    category: "Household",
-    unit: "Packet",
-    purchasePrice: 180,
-    sellingPrice: 210,
-    currentStock: 15,
-    minStockLevel: 5,
-    gstRate: 18,
-    brand: "Surf",
-    status: "active",
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
+  getProductByBarcode: async (barcode) => {
+    try {
+      return await db.getProductByBarcode(barcode)
+    } catch (error) {
+      console.error("Get product by barcode error:", error)
+      return { product: null, duplicates: [] }
+    }
   },
-  {
-    id: "7",
-    barcode: "8901234567896",
-    name: "Dettol Soap",
-    category: "Personal Care",
-    unit: "Piece",
-    purchasePrice: 40,
-    sellingPrice: 48,
-    currentStock: 30,
-    minStockLevel: 10,
-    gstRate: 18,
-    brand: "Dettol",
-    status: "active",
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
+  checkBarcodeExists: async (barcode, excludeProductId) => {
+    try {
+      return await db.checkBarcodeExists(barcode, excludeProductId)
+    } catch (error) {
+      console.error("Check barcode exists error:", error)
+      return false
+    }
   },
-  {
-    id: "8",
-    barcode: "8901234567897",
-    name: "Aashirvaad Atta 5kg",
-    category: "Groceries",
-    unit: "Packet",
-    purchasePrice: 240,
-    sellingPrice: 280,
-    currentStock: 8,
-    minStockLevel: 10,
-    gstRate: 5,
-    brand: "Aashirvaad",
-    status: "active",
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
+  getLowStockProducts: () => {
+    return get().products.filter((p) => p.status === "active" && p.currentStock <= p.minStockLevel)
   },
-  {
-    id: "9",
-    barcode: "8901234567898",
-    name: "Fortune Oil 1L",
-    category: "Groceries",
-    unit: "Piece",
-    purchasePrice: 140,
-    sellingPrice: 165,
-    currentStock: 20,
-    minStockLevel: 8,
-    gstRate: 5,
-    brand: "Fortune",
-    status: "active",
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
+  getExpiringProducts: (days) => {
+    const futureDate = new Date(Date.now() + days * 24 * 60 * 60 * 1000)
+    return get().products.filter((p) => p.status === "active" && p.expiryDate && new Date(p.expiryDate) <= futureDate)
   },
-  {
-    id: "10",
-    barcode: "8901234567899",
-    name: "Britannia Bread",
-    category: "Dairy",
-    unit: "Piece",
-    purchasePrice: 35,
-    sellingPrice: 42,
-    currentStock: 5,
-    minStockLevel: 10,
-    gstRate: 5,
-    brand: "Britannia",
-    status: "active",
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-    expiryDate: new Date(Date.now() + 5 * 24 * 60 * 60 * 1000).toISOString(),
-  },
-]
+}))
 
-export const useProductStore = create<ProductState>()(
-  persist(
-    (set, get) => ({
-      products: sampleProducts,
-      addProduct: (product) => {
-        const newProduct: Product = {
-          ...product,
-          id: generateId(),
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-        }
-        set((state) => ({ products: [...state.products, newProduct] }))
-      },
-      updateProduct: (id, updates) => {
-        set((state) => ({
-          products: state.products.map((p) =>
-            p.id === id ? { ...p, ...updates, updatedAt: new Date().toISOString() } : p,
-          ),
-        }))
-      },
-      deleteProduct: (id) => {
-        set((state) => ({
-          products: state.products.map((p) => (p.id === id ? { ...p, status: "inactive" as const } : p)),
-        }))
-      },
-      getProduct: (id) => get().products.find((p) => p.id === id),
-      searchProducts: (query) => {
-        const q = query.toLowerCase()
-        return get().products.filter(
-          (p) =>
-            p.status === "active" &&
-            (p.name.toLowerCase().includes(q) ||
-              p.barcode?.includes(q) ||
-              p.brand?.toLowerCase().includes(q) ||
-              p.category.toLowerCase().includes(q)),
-        )
-      },
-      getLowStockProducts: () => {
-        return get().products.filter((p) => p.status === "active" && p.currentStock <= p.minStockLevel)
-      },
-      getExpiringProducts: (days) => {
-        const futureDate = new Date(Date.now() + days * 24 * 60 * 60 * 1000)
-        return get().products.filter(
-          (p) => p.status === "active" && p.expiryDate && new Date(p.expiryDate) <= futureDate,
-        )
-      },
-    }),
-    { name: "kirana-products" },
-  ),
-)
-
-// Cart Store
+// Cart Store - kept in memory (no persistence needed)
 interface CartState {
   items: CartItem[]
   discount: number
@@ -304,6 +155,7 @@ interface CartState {
   getDiscountAmount: () => number
   getTaxBreakdown: () => { cgst: number; sgst: number; total: number }
   getTotal: () => number
+  setItems: (items: CartItem[]) => void
 }
 
 export const useCartStore = create<CartState>((set, get) => ({
@@ -360,7 +212,6 @@ export const useCartStore = create<CartState>((set, get) => ({
       const taxAmount = (itemTotal * item.gstRate) / 100
       totalTax += taxAmount
     })
-    // Split into CGST and SGST (assuming intra-state)
     return {
       cgst: totalTax / 2,
       sgst: totalTax / 2,
@@ -370,104 +221,163 @@ export const useCartStore = create<CartState>((set, get) => ({
   getTotal: () => {
     const subtotal = get().getSubtotal()
     const discount = get().getDiscountAmount()
-    // For simplicity, tax is included in MRP
     return subtotal - discount
+  },
+  setItems: (items) => {
+    set({ items })
   },
 }))
 
-// Sales Store
+// Sales Store - now uses Supabase
 interface SalesState {
   sales: Sale[]
   stockMovements: StockMovement[]
   heldBills: HeldBill[]
-  invoiceCounter: number
-  addSale: (sale: Omit<Sale, "id" | "invoiceNumber" | "saleDate">) => Sale
+  isLoading: boolean
+  fetchSales: () => Promise<void>
+  fetchTodaySales: () => Promise<Sale[]>
+  fetchHeldBills: () => Promise<void>
+  fetchStockMovements: () => Promise<void>
+  addSale: (sale: Omit<Sale, "id" | "invoiceNumber" | "saleDate">) => Promise<Sale>
   getSale: (id: string) => Sale | undefined
   getTodaySales: () => Sale[]
-  getSalesByDateRange: (from: Date, to: Date) => Sale[]
-  addStockMovement: (movement: Omit<StockMovement, "id" | "createdAt">) => void
-  holdBill: (bill: Omit<HeldBill, "id" | "heldAt">) => void
-  resumeBill: (id: string) => HeldBill | undefined
-  deleteHeldBill: (id: string) => void
+  addStockMovement: (movement: Omit<StockMovement, "id" | "createdAt">) => Promise<void>
+  holdBill: (bill: Omit<HeldBill, "id" | "heldAt">) => Promise<void>
+  resumeBill: (id: string) => Promise<HeldBill | undefined>
+  deleteHeldBill: (id: string) => Promise<void>
 }
 
-export const useSalesStore = create<SalesState>()(
-  persist(
-    (set, get) => ({
-      sales: [],
-      stockMovements: [],
-      heldBills: [],
-      invoiceCounter: 1,
-      addSale: (saleData) => {
-        const counter = get().invoiceCounter
-        const year = new Date().getFullYear()
-        const invoiceNumber = `INV-${year}-${String(counter).padStart(5, "0")}`
+export const useSalesStore = create<SalesState>((set, get) => ({
+  sales: [],
+  stockMovements: [],
+  heldBills: [],
+  isLoading: false,
+  fetchSales: async () => {
+    set({ isLoading: true })
+    try {
+      const sales = await db.getSales()
+      set({ sales, isLoading: false })
+    } catch (error) {
+      console.error("Fetch sales error:", error)
+      set({ isLoading: false })
+    }
+  },
+  fetchTodaySales: async () => {
+    try {
+      const sales = await db.getTodaySales()
+      return sales
+    } catch (error) {
+      console.error("Fetch today sales error:", error)
+      return []
+    }
+  },
+  fetchHeldBills: async () => {
+    try {
+      const heldBills = await db.getHeldBills()
+      set({ heldBills })
+    } catch (error) {
+      console.error("Fetch held bills error:", error)
+    }
+  },
+  fetchStockMovements: async () => {
+    try {
+      const stockMovements = await db.getStockMovements()
+      set({ stockMovements })
+    } catch (error) {
+      console.error("Fetch stock movements error:", error)
+    }
+  },
+  addSale: async (saleData) => {
+    try {
+      const items = useCartStore.getState().items.map((item) => ({
+        productId: item.id,
+        productName: item.name,
+        barcode: item.barcode,
+        quantity: item.quantity,
+        unit: item.unit,
+        unitPrice: item.sellingPrice,
+        discount: item.discount,
+        gstRate: item.gstRate,
+        gstAmount: (item.sellingPrice * item.quantity * item.gstRate) / 100,
+        subtotal: item.sellingPrice * item.quantity,
+      }))
 
-        const sale: Sale = {
-          ...saleData,
-          id: generateId(),
-          invoiceNumber,
-          saleDate: new Date().toISOString(),
-        }
+      const sale = await db.addSale(saleData, items)
+      set((state) => ({ sales: [sale, ...state.sales] }))
 
-        set((state) => ({
-          sales: [...state.sales, sale],
-          invoiceCounter: state.invoiceCounter + 1,
-        }))
+      // Refresh products to get updated stock
+      await useProductStore.getState().fetchProducts()
 
-        return sale
-      },
-      getSale: (id) => get().sales.find((s) => s.id === id),
-      getTodaySales: () => {
-        const today = new Date()
-        today.setHours(0, 0, 0, 0)
-        return get().sales.filter((s) => {
-          const saleDate = new Date(s.saleDate)
-          saleDate.setHours(0, 0, 0, 0)
-          return saleDate.getTime() === today.getTime() && s.status === "completed"
-        })
-      },
-      getSalesByDateRange: (from, to) => {
-        return get().sales.filter((s) => {
-          const saleDate = new Date(s.saleDate)
-          return saleDate >= from && saleDate <= to && s.status === "completed"
-        })
-      },
-      addStockMovement: (movement) => {
-        const newMovement: StockMovement = {
-          ...movement,
-          id: generateId(),
-          createdAt: new Date().toISOString(),
-        }
-        set((state) => ({ stockMovements: [...state.stockMovements, newMovement] }))
-      },
-      holdBill: (bill) => {
-        const newBill: HeldBill = {
-          ...bill,
-          id: generateId(),
-          heldAt: new Date().toISOString(),
-        }
-        set((state) => ({ heldBills: [...state.heldBills, newBill] }))
-      },
-      resumeBill: (id) => {
-        const bill = get().heldBills.find((b) => b.id === id)
-        if (bill) {
-          set((state) => ({ heldBills: state.heldBills.filter((b) => b.id !== id) }))
-        }
-        return bill
-      },
-      deleteHeldBill: (id) => {
+      return sale
+    } catch (error) {
+      console.error("Add sale error:", error)
+      throw error
+    }
+  },
+  getSale: (id) => get().sales.find((s) => s.id === id),
+  getTodaySales: () => {
+    const today = new Date()
+    today.setHours(0, 0, 0, 0)
+    return get().sales.filter((s) => {
+      const saleDate = new Date(s.saleDate)
+      saleDate.setHours(0, 0, 0, 0)
+      return saleDate.getTime() === today.getTime() && s.status === "completed"
+    })
+  },
+  addStockMovement: async (movement) => {
+    try {
+      const newMovement = await db.addStockMovement(movement)
+      set((state) => ({ stockMovements: [newMovement, ...state.stockMovements] }))
+
+      // Update local product stock
+      useProductStore.setState((state) => ({
+        products: state.products.map((p) =>
+          p.id === movement.productId ? { ...p, currentStock: movement.newStock } : p,
+        ),
+      }))
+    } catch (error) {
+      console.error("Add stock movement error:", error)
+      throw error
+    }
+  },
+  holdBill: async (bill) => {
+    try {
+      const newBill = await db.holdBill(bill)
+      set((state) => ({ heldBills: [...state.heldBills, newBill] }))
+    } catch (error) {
+      console.error("Hold bill error:", error)
+      throw error
+    }
+  },
+  resumeBill: async (id) => {
+    const bill = get().heldBills.find((b) => b.id === id)
+    if (bill) {
+      try {
+        await db.deleteHeldBill(id)
         set((state) => ({ heldBills: state.heldBills.filter((b) => b.id !== id) }))
-      },
-    }),
-    { name: "kirana-sales" },
-  ),
-)
+      } catch (error) {
+        console.error("Resume bill error:", error)
+      }
+    }
+    return bill
+  },
+  deleteHeldBill: async (id) => {
+    try {
+      await db.deleteHeldBill(id)
+      set((state) => ({ heldBills: state.heldBills.filter((b) => b.id !== id) }))
+    } catch (error) {
+      console.error("Delete held bill error:", error)
+      throw error
+    }
+  },
+}))
 
-// Settings Store
+// Settings Store - now uses Supabase
 interface SettingsState {
   settings: ShopSettings
-  updateSettings: (updates: Partial<ShopSettings>) => void
+  isLoading: boolean
+  fetchSettings: () => Promise<void>
+  updateSettings: (updates: Partial<ShopSettings>) => Promise<void>
 }
 
 const defaultSettings: ShopSettings = {
@@ -493,14 +403,26 @@ const defaultSettings: ShopSettings = {
   theme: "light",
 }
 
-export const useSettingsStore = create<SettingsState>()(
-  persist(
-    (set) => ({
-      settings: defaultSettings,
-      updateSettings: (updates) => {
-        set((state) => ({ settings: { ...state.settings, ...updates } }))
-      },
-    }),
-    { name: "kirana-settings" },
-  ),
-)
+export const useSettingsStore = create<SettingsState>((set) => ({
+  settings: defaultSettings,
+  isLoading: false,
+  fetchSettings: async () => {
+    set({ isLoading: true })
+    try {
+      const settings = await db.getSettings()
+      set({ settings, isLoading: false })
+    } catch (error) {
+      console.error("Fetch settings error:", error)
+      set({ isLoading: false })
+    }
+  },
+  updateSettings: async (updates) => {
+    try {
+      await db.updateSettings(updates)
+      set((state) => ({ settings: { ...state.settings, ...updates } }))
+    } catch (error) {
+      console.error("Update settings error:", error)
+      throw error
+    }
+  },
+}))

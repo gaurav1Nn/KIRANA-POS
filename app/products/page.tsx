@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
-import { useAuthStore } from "@/lib/store"
+import { useAuthStore, useProductStore } from "@/lib/store"
 import { Sidebar } from "@/components/sidebar"
 import { ProductList } from "@/components/products/product-list"
 import { ProductForm } from "@/components/products/product-form"
@@ -12,6 +12,7 @@ export default function ProductsPage() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const { user } = useAuthStore()
+  const { fetchProducts } = useProductStore()
   const [showForm, setShowForm] = useState(false)
   const [editingProduct, setEditingProduct] = useState<Product | null>(null)
 
@@ -20,6 +21,10 @@ export default function ProductsPage() {
       router.push("/")
     }
   }, [user, router])
+
+  useEffect(() => {
+    fetchProducts()
+  }, [fetchProducts])
 
   // Check for action param
   useEffect(() => {

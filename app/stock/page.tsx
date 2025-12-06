@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
-import { useAuthStore } from "@/lib/store"
+import { useAuthStore, useProductStore, useSalesStore } from "@/lib/store"
 import { Sidebar } from "@/components/sidebar"
 import { Button } from "@/components/ui/button"
 import { StockForm } from "@/components/stock/stock-form"
@@ -14,6 +14,8 @@ export default function StockPage() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const { user } = useAuthStore()
+  const { fetchProducts } = useProductStore()
+  const { fetchStockMovements } = useSalesStore()
   const [showForm, setShowForm] = useState(false)
   const [formType, setFormType] = useState<"stock_in" | "stock_out" | "adjustment">("stock_in")
 
@@ -22,6 +24,11 @@ export default function StockPage() {
       router.push("/")
     }
   }, [user, router])
+
+  useEffect(() => {
+    fetchProducts()
+    fetchStockMovements()
+  }, [fetchProducts, fetchStockMovements])
 
   // Check for action param
   useEffect(() => {
