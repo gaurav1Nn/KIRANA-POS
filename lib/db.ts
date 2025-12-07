@@ -317,9 +317,8 @@ export async function addSale(sale: Omit<Sale, "id" | "invoiceNumber" | "saleDat
 
   if (itemsError) throw itemsError
 
-  // Update product stock
+  // Update product stock directly without empty rpc call
   for (const item of items) {
-    await supabase.rpc("", {}) // We'll update stock manually
     const { data: productData } = await supabase
       .from("products")
       .select("current_stock")
