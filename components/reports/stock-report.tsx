@@ -1,20 +1,29 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { useProductStore } from "@/lib/store"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { Search, AlertTriangle, Package } from "lucide-react"
+import { Search, AlertTriangle, Package, Loader2 } from "lucide-react"
 import { CATEGORIES } from "@/lib/types"
 
 export function StockReport() {
-  const { products } = useProductStore()
+  const { products, fetchProducts, isLoading } = useProductStore()
   const [search, setSearch] = useState("")
   const [categoryFilter, setCategoryFilter] = useState<string>("all")
   const [stockFilter, setStockFilter] = useState<string>("all")
+  const [isInitialized, setIsInitialized] = useState(false)
+
+  useEffect(() => {
+    const init = async () => {
+      await fetchProducts()
+      setIsInitialized(true)
+    }
+    init()
+  }, [fetchProducts])
 
   const activeProducts = products.filter((p) => p.status === "active")
 
@@ -40,6 +49,14 @@ export function StockReport() {
   const totalRetailValue = filteredProducts.reduce((sum, p) => sum + p.currentStock * p.sellingPrice, 0)
   const lowStockCount = activeProducts.filter((p) => p.currentStock <= p.minStockLevel && p.currentStock > 0).length
   const outOfStockCount = activeProducts.filter((p) => p.currentStock === 0).length
+
+  if (isLoading || !isInitialized) {
+    return (
+      <div className="flex items-center justify-center py-12">
+        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+      </div>
+    )
+  }
 
   return (
     <div className="space-y-6">

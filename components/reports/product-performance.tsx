@@ -1,20 +1,32 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { useSalesStore } from "@/lib/store"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Badge } from "@/components/ui/badge"
+import { Loader2 } from "lucide-react"
 import { format, startOfDay, endOfDay, subDays } from "date-fns"
 
 export function ProductPerformance() {
-  const { getSalesByDateRange } = useSalesStore()
+  const { fetchSales, isLoading, getSalesByDateRange } = useSalesStore()
   const [startDate, setStartDate] = useState(format(subDays(new Date(), 29), "yyyy-MM-dd"))
   const [endDate, setEndDate] = useState(format(new Date(), "yyyy-MM-dd"))
+  const [isInitialized, setIsInitialized] = useState(false)
 
-  const filteredSales = getSalesByDateRange(startOfDay(new Date(startDate)), endOfDay(new Date(endDate)))
+  useEffect(() => {
+    const init = async () => {
+      await fetchSales()
+      setIsInitialized(true)
+    }
+    init()
+  }, [fetchSales])
+
+  const filteredSales = isInitialized
+    ? getSalesByDateRange(startOfDay(new Date(startDate)), endOfDay(new Date(endDate)))
+    : []
 
   // Aggregate product performance
   const productStats: Record<
@@ -49,25 +61,19 @@ export function ProductPerformance() {
     .sort((a, b) => b[1].revenue - a[1].revenue)
     .slice(0, 20)
 
-  // Category performance
-  const categoryStats: Record<string, { quantity: number; revenue: number }> = {}
-  filteredSales.forEach((sale) => {
-    sale.items.forEach((item) => {
-      // Since we don't have category in sale items, group by first word of product name as proxy
-      const category = item.productName.split(" ")[0]
-      if (!categoryStats[category]) {
-        categoryStats[category] = { quantity: 0, revenue: 0 }
-      }
-      categoryStats[category].quantity += item.quantity
-      categoryStats[category].revenue += item.subtotal
-    })
-  })
-
   const setQuickRange = (days: number) => {
     const end = new Date()
     const start = subDays(end, days - 1)
     setStartDate(format(start, "yyyy-MM-dd"))
     setEndDate(format(end, "yyyy-MM-dd"))
+  }
+
+  if (isLoading || !isInitialized) {
+    return (
+      <div className="flex items-center justify-center py-12">
+        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+      </div>
+    )
   }
 
   return (

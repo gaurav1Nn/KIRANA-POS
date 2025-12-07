@@ -241,6 +241,7 @@ interface SalesState {
   addSale: (sale: Omit<Sale, "id" | "invoiceNumber" | "saleDate">) => Promise<Sale>
   getSale: (id: string) => Sale | undefined
   getTodaySales: () => Sale[]
+  getSalesByDateRange: (startDate: Date, endDate: Date) => Sale[]
   addStockMovement: (movement: Omit<StockMovement, "id" | "createdAt">) => Promise<void>
   holdBill: (bill: Omit<HeldBill, "id" | "heldAt">) => Promise<void>
   resumeBill: (id: string) => Promise<HeldBill | undefined>
@@ -322,6 +323,12 @@ export const useSalesStore = create<SalesState>((set, get) => ({
       const saleDate = new Date(s.saleDate)
       saleDate.setHours(0, 0, 0, 0)
       return saleDate.getTime() === today.getTime() && s.status === "completed"
+    })
+  },
+  getSalesByDateRange: (startDate: Date, endDate: Date) => {
+    return get().sales.filter((s) => {
+      const saleDate = new Date(s.saleDate)
+      return saleDate >= startDate && saleDate <= endDate && s.status === "completed"
     })
   },
   addStockMovement: async (movement) => {

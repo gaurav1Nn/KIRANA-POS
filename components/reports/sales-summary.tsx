@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { useSalesStore } from "@/lib/store"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -8,15 +8,26 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Badge } from "@/components/ui/badge"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { IndianRupee, Receipt, TrendingUp, Wallet, CreditCard, Smartphone } from "lucide-react"
+import { IndianRupee, Receipt, TrendingUp, Wallet, CreditCard, Smartphone, Loader2 } from "lucide-react"
 import { format, startOfDay, endOfDay, subDays } from "date-fns"
 
 export function SalesSummary() {
-  const { sales, getSalesByDateRange } = useSalesStore()
+  const { sales, fetchSales, isLoading, getSalesByDateRange } = useSalesStore()
   const [startDate, setStartDate] = useState(format(new Date(), "yyyy-MM-dd"))
   const [endDate, setEndDate] = useState(format(new Date(), "yyyy-MM-dd"))
+  const [isInitialized, setIsInitialized] = useState(false)
 
-  const filteredSales = getSalesByDateRange(startOfDay(new Date(startDate)), endOfDay(new Date(endDate)))
+  useEffect(() => {
+    const init = async () => {
+      await fetchSales()
+      setIsInitialized(true)
+    }
+    init()
+  }, [fetchSales])
+
+  const filteredSales = isInitialized
+    ? getSalesByDateRange(startOfDay(new Date(startDate)), endOfDay(new Date(endDate)))
+    : []
 
   const totalSales = filteredSales.reduce((sum, sale) => sum + sale.totalAmount, 0)
   const totalBills = filteredSales.length
@@ -35,6 +46,14 @@ export function SalesSummary() {
     const start = subDays(end, days - 1)
     setStartDate(format(start, "yyyy-MM-dd"))
     setEndDate(format(end, "yyyy-MM-dd"))
+  }
+
+  if (isLoading || !isInitialized) {
+    return (
+      <div className="flex items-center justify-center py-12">
+        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+      </div>
+    )
   }
 
   return (
@@ -190,7 +209,7 @@ export function SalesSummary() {
                 ) : (
                   filteredSales
                     .slice()
-                    .reverse()
+                    .sort((a, b) => new Date(b.saleDate).getTime() - new Date(a.saleDate).getTime())
                     .map((sale) => (
                       <TableRow key={sale.id}>
                         <TableCell className="font-medium">{sale.invoiceNumber}</TableCell>
